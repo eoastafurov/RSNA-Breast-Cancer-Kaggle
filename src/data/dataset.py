@@ -19,7 +19,12 @@ class RsnaDataset(torch.utils.data.Dataset):
         category_aux_targets: List[str],
     ):
         df["img_name"] = (
-            df["patient_id"].astype(str) + "/" + df["image_id"].astype(str) + ".png"
+            (df["patient_id"].astype(str) + "/" + df["image_id"].astype(str) + ".png")
+            if not is_test
+            else df["patient_id"].astype(str)
+            + "_"
+            + df["image_id"].astype(str)
+            + ".png"
         )
         df = df.reset_index(drop=True)
         self.df = df
@@ -44,9 +49,10 @@ class RsnaDataset(torch.utils.data.Dataset):
         if not self.is_test:
             target = self.df["cancer"][idx]
             target = torch.tensor(target, dtype=torch.float)
-            # print(self.df.iloc[idx][self.category_aux_targets])
             cat_aux_targets = torch.as_tensor(
                 self.df.iloc[idx][self.category_aux_targets]
             )
             return img, target, cat_aux_targets
-        return img
+        patient_id = self.df["patient_id"][idx]
+        laterality = self.df['laterality'][idx]
+        return img, patient_id, laterality

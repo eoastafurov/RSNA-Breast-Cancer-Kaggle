@@ -26,25 +26,24 @@ from pytorch_lightning.utilities.seed import seed_everything
 seed_everything(44, True)
 
 
-RUN_NAME = "efficientnet_b2_2048_debug"
-DESC = "?"
+RUN_NAME = ""
+DESC = ""
 # MODEL_NAME = "tf_efficientnetv2_l"
-# MODEL_NAME = "tf_efficientnetv2_s"
-MODEL_NAME = "efficientnet_b2"
+MODEL_NAME = "tf_efficientnetv2_s"
 # MODEL_NAME = "seresnext50_32x4d"
 
 
 conf = {
     "dataset_root": "/home/jovyan/Datasets/rsna",
     "augments_name": "SimpleAugments",
-    "augments_kwargs": {"img_size": 2048},
+    "augments_kwargs": {"img_size": 1024},
     "val_ratio": 0.2,
-    "img_size": 2048,
+    "img_size": 1024,
     "img_folder": "/home/jovyan/Datasets/rsna/train_images_1024",
     "batch_size": 8,
     "num_workers": 16,
     "model_name": MODEL_NAME,
-    "fc_dropout": 0.5,
+    "fc_dropout": 0.65,
     "lr": 5e-5,
     "category_aux_targets": [
         "site_id",
@@ -70,6 +69,7 @@ if __name__ == "__main__":
     dm.setup()
     # print(dir(dm))
     model = RsnaTimmModel(conf)
+    # print(model.load_state_dict(torch.load('/home/toomuch/rsna/runs/[READY 0.294] EffNet2_s_1024_AUX/tf_efficientnetv2_s_1024_debug-epoch=09-val_loss=2.238-val_cf1=0.062_cf1thr=0.3.ckpt')['state_dict']))
 
     logger = TensorBoardLogger("lightning_logs", name=RUN_NAME)
     checkpoint_callback = ModelCheckpoint(

@@ -12,6 +12,7 @@ from copy import deepcopy
 class SmoothBCEwLogits(_WeightedLoss):
     def __init__(self, weight=None, reduction="mean", smoothing=0.0, pos_weight=None):
         super().__init__(weight=weight, reduction=reduction)
+        self.save_hyperparameters()
         self.smoothing = smoothing
         self.weight = weight
         self.reduction = reduction
@@ -48,11 +49,9 @@ class RsnaTimmModel(pl.LightningModule):
             drop_rate=0.3,
             drop_path_rate=0.2,
         )
-        ##############################################
         self.nn_aux = torch.nn.ModuleList(
             [torch.nn.LazyLinear(n) for n in conf["aux_classes"]]
         )
-        ##############################################
         self.fc = torch.nn.LazyLinear(1)
         self.dropout = torch.nn.Dropout(p=conf["fc_dropout"])
         self.pooling = torch.nn.AvgPool1d(kernel_size=1)
@@ -90,7 +89,6 @@ class RsnaTimmModel(pl.LightningModule):
             on_epoch=False,
             prog_bar=True,
         )
-        ########################################################################
         aux_loss = torch.mean(
             torch.stack(
                 [
@@ -100,7 +98,6 @@ class RsnaTimmModel(pl.LightningModule):
             )
         )
         loss = loss + self.conf["aux_loss_weight"] * aux_loss
-        ########################################################################
 
         cf1 = pfbeta_torch(
             preds=self.sigmoid(out).clone().detach().cpu(),
@@ -150,7 +147,6 @@ class RsnaTimmModel(pl.LightningModule):
         out, aux_out = self(imgs)
         out = out.view(-1)
         loss = self.loss_fn(out, targets)
-        ########################################################################
         aux_loss = torch.mean(
             torch.stack(
                 [
@@ -160,7 +156,6 @@ class RsnaTimmModel(pl.LightningModule):
             )
         )
         loss = loss + self.conf["aux_loss_weight"] * aux_loss
-        ########################################################################
 
         cf1 = pfbeta_torch(
             preds=self.sigmoid(out).clone().detach().cpu(),
@@ -239,7 +234,7 @@ class RsnaTimmModel(pl.LightningModule):
             preds=train_pred_probs,
             labels=train_y_test,
         )
-        cf1_thresh, threshold = pfbeta_torch_thresh(
+        cf1_thresh, _ = pfbeta_torch_thresh(
             preds=train_pred_probs,
             labels=train_y_test,
         )
@@ -256,6 +251,12 @@ class RsnaTimmModel(pl.LightningModule):
             # round(float(cm["c_recall"]), 3),
         )
         print(report)
+
+    def predict_step(self, batch, batch_idx, dataloader_idx=0):
+        imgs, patient_ids, lateralitys = batch
+        out, _ = self(imgs)
+        probs = self.sigmoid(out)
+        return probs, patient_ids, lateralitys
 
     def configure_optimizers(self):
         optimizer = torch.optim.AdamW(

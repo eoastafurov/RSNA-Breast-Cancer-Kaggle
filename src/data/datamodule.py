@@ -23,10 +23,15 @@ class RsnaDataModule(pl.LightningDataModule):
         self.train_df = pd.read_csv(
             os.path.join(self.conf["dataset_root"], "train.csv")
         )
-        # self.inference_df = pd.read_csv(
-        #     os.path.join(self.conf["dataset_root"], "test.csv")
-        # )
-        # warnings.warn("Not set up for inference!")
+        self.inference_df = pd.read_csv(
+            os.path.join(self.conf["dataset_root"], "test.csv")
+        )
+        # for _df in [self.train_df, self.inference_df]:
+        #     _df.age.fillna(_df.age.mean(), inplace=True)
+        #     _df.age = pd.qcut(_df.age, 10, labels=range(10), retbins=False).astype(int)
+        #     _df[self.conf["category_aux_targets"]] = _df[
+        #         self.conf["category_aux_targets"]
+        #     ].apply(LabelEncoder().fit_transform)
         self.train_df.age.fillna(self.train_df.age.mean(), inplace=True)
         self.train_df.age = pd.qcut(
             self.train_df.age, 10, labels=range(10), retbins=False
@@ -64,14 +69,14 @@ class RsnaDataModule(pl.LightningDataModule):
             is_test=False,
             category_aux_targets=self.conf["category_aux_targets"],
         )
-        # self.inference_dataset = RsnaDataset(
-        #     df=self.inference_df,
-        #     img_size=self.conf["img_size"],
-        #     img_folder=self.conf["img_folder"],
-        #     augments=self.val_augments,
-        #     is_test=True,
-        #     category_aux_targets=self.conf["category_aux_targets"],
-        # )
+        self.inference_dataset = RsnaDataset(
+            df=self.inference_df,
+            img_size=self.conf["img_size"],
+            img_folder=self.conf["img_folder_inference"],
+            augments=self.val_augments,
+            is_test=True,
+            category_aux_targets=self.conf["category_aux_targets"],
+        )
 
     def train_dataloader(self) -> torch.utils.data.DataLoader:
         return torch.utils.data.DataLoader(
@@ -89,10 +94,10 @@ class RsnaDataModule(pl.LightningDataModule):
             num_workers=self.conf["num_workers"],
         )
 
-    # def predict_dataloader(self) -> torch.utils.data.DataLoader:
-    #     return torch.utils.data.DataLoader(
-    #         self.inference_dataset,
-    #         batch_size=self.conf["batch_size"],
-    #         shuffle=False,
-    #         num_workers=self.conf["num_workers"],
-    #     )
+    def predict_dataloader(self) -> torch.utils.data.DataLoader:
+        return torch.utils.data.DataLoader(
+            self.inference_dataset,
+            batch_size=self.conf["batch_size"],
+            shuffle=False,
+            num_workers=self.conf["num_workers"],
+        )

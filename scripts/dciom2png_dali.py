@@ -166,7 +166,7 @@ def main(args):
     print("Done with GPU!")
     print("Starting processing the rest on CPU..")
 
-    _ = Parallel(n_jobs=2)(
+    _ = Parallel(n_jobs=int(args.njobs))(
         delayed(process_rest_func)(
             img, size=args.img_size, save_folder=args.destination
         )

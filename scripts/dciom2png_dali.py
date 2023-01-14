@@ -63,8 +63,8 @@ def j2k_decode_pipeline(j2kfiles):
 
 def main(args):
     images_paths = glob.glob(f"{args.source}*/*.dcm")
-    logging.info("Number of images :", len(images_paths))
-    logging.info("Making savedirs tree")
+    print("Number of images :", len(images_paths))
+    print("Making savedirs tree")
     os.makedirs(args.destination, exist_ok=True)
     chunks = [
         (
@@ -77,7 +77,7 @@ def main(args):
     j2k_dir = args.j2k_dir
 
     for i, chunk in tqdm(enumerate(chunks)):
-        logging.info(f"Starting {i+1} chunk")
+        print(f"Starting {i+1} chunk")
 
         os.makedirs(j2k_dir, exist_ok=True)
         _ = Parallel(n_jobs=args.njobs)(
@@ -124,7 +124,7 @@ def main(args):
             cv2.imwrite(args.destination + f"{patient}_{image}.png", img)
         shutil.rmtree(j2k_dir, ignore_errors=True)
 
-    logging.info("Done!")
+    print("Done!")
 
 
 if __name__ == "__main__":

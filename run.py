@@ -43,6 +43,7 @@ conf = {
     "batch_size": 8,
     "num_workers": 16,
     "model_name": MODEL_NAME,
+    "pretrained": True,
     "fc_dropout": 0.65,
     "lr": 5e-5,
     "category_aux_targets": [

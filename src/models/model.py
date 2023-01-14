@@ -44,7 +44,7 @@ class RsnaTimmModel(pl.LightningModule):
         # Model Architecture
         self.model = timm.create_model(
             conf["model_name"],
-            pretrained=True,
+            pretrained=conf['pretrained'],
             num_classes=0,
             drop_rate=0.3,
             drop_path_rate=0.2,

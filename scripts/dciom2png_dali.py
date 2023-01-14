@@ -24,6 +24,7 @@ import dicomsdl
 def configure_parser():
     parser = argparse.ArgumentParser()
     parser.add_argument("--img_size", type=int, required=True)
+    parser.add_argument("--max_images", type=int, required=True)
     parser.add_argument("--source", type=str, required=True)
     parser.add_argument("--destination", type=str, required=True)
     parser.add_argument("--j2k_dir", type=str, required=True)
@@ -101,7 +102,7 @@ def j2k_decode_pipeline(j2kfiles):
 
 
 def main(args):
-    images_paths = glob.glob(f"{args.source}*/*.dcm")
+    images_paths = glob.glob(f"{args.source}*/*.dcm")[:args.max_images]
     print("Number of images :", len(images_paths))
     print("Making savedirs tree")
     os.makedirs(args.destination, exist_ok=True)
@@ -181,7 +182,7 @@ if __name__ == "__main__":
     >>> python dciom2png_dali.py --img_size 1024 --source /data/rsna/test_images/ \
             --destination /home/toomuch/rsna/to_delete/output/ \
             --j2k_dir /home/toomuch/rsna/to_delete/j2k/ \
-    >>> python dciom2png_dali.py --img_size 1024 --source /home/jovyan/Datasets/rsna/train_images/ --destination /home/jovyan/Datasets/rsna/output/ --j2k_dir /home/jovyan/Datasets/rsna/j2k/ --njobs 4 --nchunks 1
+    >>> python dciom2png_dali.py --img_size 1024 --max_images 100 --source /home/jovyan/Datasets/rsna/train_images/ --destination /home/jovyan/Datasets/rsna/output/ --j2k_dir /home/jovyan/Datasets/rsna/j2k/ --njobs 4 --nchunks 1
     """
     args = configure_parser().parse_args()
     main(args)

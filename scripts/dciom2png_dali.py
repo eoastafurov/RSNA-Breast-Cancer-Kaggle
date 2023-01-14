@@ -18,6 +18,7 @@ from nvidia.dali.plugin.pytorch import feed_ndarray, to_torch_type
 from nvidia.dali.types import DALIDataType
 from pydicom.filebase import DicomBytesIO
 from tqdm.notebook import tqdm
+import dicomsdl
 
 
 def configure_parser():
@@ -29,6 +30,48 @@ def configure_parser():
     parser.add_argument("--njobs", type=int, required=False, default=2)
     parser.add_argument("--nchunks", type=int, required=False, default=4)
     return parser
+
+
+def dicomsdl_to_numpy_image(dicom, index=0):
+    info = dicom.getPixelDataInfo()
+    dtype = info["dtype"]
+    if info["SamplesPerPixel"] != 1:
+        raise RuntimeError("SamplesPerPixel != 1")
+    else:
+        shape = [info["Rows"], info["Cols"]]
+    outarr = np.empty(shape, dtype=dtype)
+    dicom.copyFrameData(index, outarr)
+    return outarr
+
+
+def load_img_dicomsdl(f):
+    return dicomsdl_to_numpy_image(dicomsdl.open(f))
+
+
+def process_rest_func(f, size=512, save_folder=""):
+    patient = f.split("/")[-2]
+    image = f.split("/")[-1][:-4]
+
+    dicom = pydicom.dcmread(f)
+
+    if (
+        dicom.file_meta.TransferSyntaxUID == "1.2.840.10008.1.2.4.90"
+    ):  # ALREADY PROCESSED
+        return
+
+    try:
+        img = load_img_dicomsdl(f)
+    except:
+        img = dicom.pixel_array
+
+    img = (img - img.min()) / (img.max() - img.min())
+
+    if dicom.PhotometricInterpretation == "MONOCHROME1":
+        img = 1 - img
+
+    img = cv2.resize(img, (size, size))
+
+    cv2.imwrite(save_folder + f"{patient}_{image}.png", (img * 255).astype(np.uint8))
 
 
 def convert_dicom_to_j2k(file, save_folder=""):
@@ -51,13 +94,9 @@ def convert_dicom_to_j2k(file, save_folder=""):
 @pipeline_def
 def j2k_decode_pipeline(j2kfiles):
     jpegs, _ = fn.readers.file(files=j2kfiles)
-    # print(dir(fn.experimental.decoders))
     images = fn.experimental.decoders.image(
         jpegs, device="mixed", output_type=types.ANY_DATA, dtype=DALIDataType.UINT16
     )
-    # images = fn.decoders.image(
-    #     jpegs, device="mixed", output_type=types.ANY_DATA, dtype=DALIDataType.UINT16
-    # )
     return images
 
 
@@ -81,8 +120,8 @@ def main(args):
 
         os.makedirs(j2k_dir, exist_ok=True)
         _ = Parallel(n_jobs=args.njobs)(
-            delayed(convert_dicom_to_j2k)(img, save_folder=j2k_dir)
-            for img in images_paths[chunk[0] : chunk[1]]
+            delayed(convert_dicom_to_j2k)(fname, save_folder=j2k_dir)
+            for fname in images_paths[chunk[0] : chunk[1]]
         )
 
         j2kfiles = glob.glob(j2k_dir + "*.jp2")
@@ -123,6 +162,16 @@ def main(args):
             img = (img * 255).cpu().numpy().astype(np.uint8)
             cv2.imwrite(args.destination + f"{patient}_{image}.png", img)
         shutil.rmtree(j2k_dir, ignore_errors=True)
+
+    print("Done with GPU!")
+    print("Starting processing the rest on CPU..")
+
+    _ = Parallel(n_jobs=2)(
+        delayed(process_rest_func)(
+            img, size=args.img_size, save_folder=args.destination
+        )
+        for img in tqdm(images_paths)
+    )
 
     print("Done!")
 

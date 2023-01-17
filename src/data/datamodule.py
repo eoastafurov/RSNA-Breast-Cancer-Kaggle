@@ -26,12 +26,6 @@ class RsnaDataModule(pl.LightningDataModule):
         self.inference_df = pd.read_csv(
             os.path.join(self.conf["dataset_root"], "test.csv")
         )
-        # for _df in [self.train_df, self.inference_df]:
-        #     _df.age.fillna(_df.age.mean(), inplace=True)
-        #     _df.age = pd.qcut(_df.age, 10, labels=range(10), retbins=False).astype(int)
-        #     _df[self.conf["category_aux_targets"]] = _df[
-        #         self.conf["category_aux_targets"]
-        #     ].apply(LabelEncoder().fit_transform)
         self.train_df.age.fillna(self.train_df.age.mean(), inplace=True)
         self.train_df.age = pd.qcut(
             self.train_df.age, 10, labels=range(10), retbins=False

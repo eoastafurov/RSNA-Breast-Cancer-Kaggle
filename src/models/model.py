@@ -5,46 +5,19 @@ import torchmetrics
 import numpy as np
 from fastai.losses import CrossEntropyLossFlat
 from src.metrics.competition_metrics import c_metrics, pfbeta_torch_thresh, pfbeta_torch
-from torch.nn.modules.loss import _WeightedLoss
 from copy import deepcopy
-
-
-class SmoothBCEwLogits(_WeightedLoss):
-    def __init__(self, weight=None, reduction="mean", smoothing=0.0, pos_weight=None):
-        super().__init__(weight=weight, reduction=reduction)
-        self.save_hyperparameters()
-        self.smoothing = smoothing
-        self.weight = weight
-        self.reduction = reduction
-        self.pos_weight = pos_weight
-
-    @staticmethod
-    def _smooth(targets, n_labels, smoothing=0.0):
-        assert 0 <= smoothing < 1
-        with torch.no_grad():
-            targets = targets * (1.0 - smoothing) + 0.5 * smoothing
-        return targets
-
-    def forward(self, inputs, targets):
-        targets = SmoothBCEwLogits._smooth(targets, inputs.size(-1), self.smoothing)
-        loss = torch.nn.functional.binary_cross_entropy_with_logits(
-            inputs, targets, self.weight, pos_weight=self.pos_weight.to("cuda")
-        )
-        if self.reduction == "sum":
-            loss = loss.sum()
-        elif self.reduction == "mean":
-            loss = loss.mean()
-        return loss
+from transformers import get_cosine_schedule_with_warmup
 
 
 class RsnaTimmModel(pl.LightningModule):
     def __init__(self, conf):
         super(RsnaTimmModel, self).__init__()
+        self.save_hyperparameters()
         self.conf = conf
         # Model Architecture
         self.model = timm.create_model(
             conf["model_name"],
-            pretrained=conf['pretrained'],
+            pretrained=conf["pretrained"],
             num_classes=0,
             drop_rate=0.3,
             drop_path_rate=0.2,
@@ -56,7 +29,9 @@ class RsnaTimmModel(pl.LightningModule):
         self.dropout = torch.nn.Dropout(p=conf["fc_dropout"])
         self.pooling = torch.nn.AvgPool1d(kernel_size=1)
         # Loss functions
-        self.loss_fn = torch.nn.BCEWithLogitsLoss(pos_weight=torch.tensor([50]).float())
+        self.loss_fn = torch.nn.BCEWithLogitsLoss(
+            pos_weight=torch.tensor([conf["positive_weight"]]).float()
+        )
         # self.loss_fn = SmoothBCEwLogits(
         #     pos_weight=torch.tensor([50]).float(), smoothing=0.1
         # )
@@ -83,7 +58,7 @@ class RsnaTimmModel(pl.LightningModule):
         out = out.view(-1)
         loss = self.loss_fn(out, targets)
         self.log(
-            "train_loss_clear",
+            "train_loss_clean",
             loss.clone(),
             on_step=True,
             on_epoch=False,
@@ -147,6 +122,13 @@ class RsnaTimmModel(pl.LightningModule):
         out, aux_out = self(imgs)
         out = out.view(-1)
         loss = self.loss_fn(out, targets)
+        self.log(
+            "val_loss_clean",
+            loss.clone(),
+            on_step=True,
+            on_epoch=False,
+            prog_bar=True,
+        )
         aux_loss = torch.mean(
             torch.stack(
                 [
@@ -234,19 +216,20 @@ class RsnaTimmModel(pl.LightningModule):
             preds=train_pred_probs,
             labels=train_y_test,
         )
-        cf1_thresh, _ = pfbeta_torch_thresh(
+        cf1_thresh, threshold = pfbeta_torch_thresh(
             preds=train_pred_probs,
             labels=train_y_test,
         )
         report = """        #{0}#
             = TRAIN LOSS: {1}
             = TRAIN cF1: {2}
-            = TRAIN cF1_thresh {3}
+            = TRAIN cF1_thresh {3}, thr value = {4}
         #{0}#""".format(
             "".join(["="] * 75),
             round(float(train_avg_loss), 3),
             round(float(cf1), 3),
             round(float(cf1_thresh), 3),
+            round(float(threshold), 3),
             # round(float(cm["c_precision"]), 3),
             # round(float(cm["c_recall"]), 3),
         )
@@ -258,28 +241,59 @@ class RsnaTimmModel(pl.LightningModule):
         probs = self.sigmoid(out)
         return probs, patient_ids, lateralitys
 
+    # def configure_optimizers(self):
+    #     optimizer = torch.optim.AdamW(
+    #         self.parameters(),
+    #         lr=self.conf["lr"],
+    #         betas=(0.9, 0.999),
+    #     )
+    #     lr_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+    #         optimizer,
+    #         mode="min",
+    #         factor=0.3,
+    #         patience=2,
+    #         threshold=1e-2,
+    #         threshold_mode="rel",
+    #         cooldown=0,
+    #         min_lr=0,
+    #         eps=1e-08,
+    #         verbose=True,
+    #     )
+    #     lr_dict = {
+    #         "scheduler": lr_scheduler,
+    #         "interval": "epoch",
+    #         "frequency": 1,
+    #         "monitor": "val_cf1",
+    #     }
+    #     return [optimizer], [lr_dict]
+
     def configure_optimizers(self):
+        param_optimizer = list(self.named_parameters())
+        no_decay = ["bias", "LayerNorm.bias", "LayerNorm.weight"]
+        optimizer_grouped_parameters = [
+            {
+                "params": [
+                    p for n, p in param_optimizer if not any(nd in n for nd in no_decay)
+                ],
+                "weight_decay": self.conf["weight_decay"],
+            },
+            {
+                "params": [
+                    p for n, p in param_optimizer if any(nd in n for nd in no_decay)
+                ],
+                "weight_decay": 0.0,
+            },
+        ]
+        num_train_optimization_steps = self.conf["__total_training_steps__"]
+
         optimizer = torch.optim.AdamW(
-            self.parameters(),
+            optimizer_grouped_parameters,
             lr=self.conf["lr"],
             betas=(0.9, 0.999),
         )
-        lr_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+        lr_scheduler = get_cosine_schedule_with_warmup(
             optimizer,
-            mode="min",
-            factor=0.3,
-            patience=2,
-            threshold=1e-2,
-            threshold_mode="rel",
-            cooldown=0,
-            min_lr=0,
-            eps=1e-08,
-            verbose=True,
+            num_warmup_steps=self.conf["warmup_ratio"] * num_train_optimization_steps,
+            num_training_steps=num_train_optimization_steps,
         )
-        lr_dict = {
-            "scheduler": lr_scheduler,
-            "interval": "epoch",
-            "frequency": 1,
-            "monitor": "val_cf1",
-        }
-        return [optimizer], [lr_dict]
+        return [optimizer], [{"scheduler": lr_scheduler, "interval": "step"}]

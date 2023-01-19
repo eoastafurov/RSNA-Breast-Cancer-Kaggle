@@ -1,97 +1,58 @@
-import os
-from typing import Optional
-
-import pandas as pd
-import pytorch_lightning as pl
-import sklearn
 import torch
-import warnings
-from sklearn.model_selection import GroupKFold
-from sklearn.preprocessing import LabelEncoder
-from sklearn.model_selection import StratifiedGroupKFold
+import cv2
+import os
+import numpy as np
+import torchvision
+import os
+from PIL import Image
+from typing import List
 
-from src.data import augments as augments_factory
-from src.data.dataset import RsnaDataset
 
+class RsnaDataset(torch.utils.data.Dataset):
+    def __init__(
+        self,
+        df,
+        img_size,
+        is_test,
+        augments,
+        img_folder,
+        category_aux_targets: List[str],
+    ):
+        df["img_name"] = (
+            (df["patient_id"].astype(str) + "_" + df["image_id"].astype(str) + ".png")
+            if not is_test
+            else df["patient_id"].astype(str)
+            + "_"
+            + df["image_id"].astype(str)
+            + ".png"
+        )
+        df = df.reset_index(drop=True)
+        self.df = df
+        self.is_test = is_test
+        self.augments = augments
+        self.img_folder = img_folder
+        self.img_size = img_size
+        self.category_aux_targets = category_aux_targets
+        self.numpy_to_tensor_transfom = torchvision.transforms.ToTensor()
 
-class RsnaDataModule(pl.LightningDataModule):
-    def __init__(self, conf) -> None:
-        super().__init__()
-        self.conf = conf
+    def __len__(self):
+        return len(self.df)
 
-    def prepare_data(self):
-        self.train_df = pd.read_csv(
-            os.path.join(self.conf["dataset_root"], "train.csv")
-        )
-        self.inference_df = pd.read_csv(
-            os.path.join(self.conf["dataset_root"], "test.csv")
-        )
-        self.train_df.age.fillna(self.train_df.age.mean(), inplace=True)
-        self.train_df.age = pd.qcut(
-            self.train_df.age, 10, labels=range(10), retbins=False
-        ).astype(int)
-        self.train_df[self.conf["category_aux_targets"]] = self.train_df[
-            self.conf["category_aux_targets"]
-        ].apply(LabelEncoder().fit_transform)
+    def __getitem__(self, idx):
+        img_path = os.path.join(self.img_folder, self.df["img_name"][idx])
+        img = cv2.imread(img_path)
 
-    def load_augments(self):
-        Augments = getattr(augments_factory, self.conf["augments_name"])
-        augments = Augments(**self.conf["augments_kwargs"])
-        self.train_augments = augments.train_augments
-        self.val_augments = augments.valid_augments
+        if self.augments:
+            img = self.augments(image=img)["image"]
+        img = self.numpy_to_tensor_transfom(img.astype(np.uint8))
 
-    def setup(self, stage: Optional[str] = None):
-        self.load_augments()
-        train_df, val_df = sklearn.model_selection.train_test_split(
-            self.train_df,
-            test_size=self.conf["val_ratio"],
-            stratify=self.train_df["cancer"],
-        )
-        self.train_dataset = RsnaDataset(
-            df=train_df,
-            img_size=self.conf["img_size"],
-            img_folder=self.conf["img_folder"],
-            augments=self.train_augments,
-            is_test=False,
-            category_aux_targets=self.conf["category_aux_targets"],
-        )
-        self.val_dataset = RsnaDataset(
-            df=val_df,
-            img_size=self.conf["img_size"],
-            img_folder=self.conf["img_folder"],
-            augments=self.val_augments,
-            is_test=False,
-            category_aux_targets=self.conf["category_aux_targets"],
-        )
-        self.inference_dataset = RsnaDataset(
-            df=self.inference_df,
-            img_size=self.conf["img_size"],
-            img_folder=self.conf["img_folder_inference"],
-            augments=self.val_augments,
-            is_test=True,
-            category_aux_targets=self.conf["category_aux_targets"],
-        )
-
-    def train_dataloader(self) -> torch.utils.data.DataLoader:
-        return torch.utils.data.DataLoader(
-            self.train_dataset,
-            batch_size=self.conf["batch_size"],
-            shuffle=True,
-            num_workers=self.conf["num_workers"],
-        )
-
-    def val_dataloader(self) -> torch.utils.data.DataLoader:
-        return torch.utils.data.DataLoader(
-            self.val_dataset,
-            batch_size=self.conf["batch_size"],
-            shuffle=False,
-            num_workers=self.conf["num_workers"],
-        )
-
-    def predict_dataloader(self) -> torch.utils.data.DataLoader:
-        return torch.utils.data.DataLoader(
-            self.inference_dataset,
-            batch_size=self.conf["batch_size"],
-            shuffle=False,
-            num_workers=self.conf["num_workers"],
-        )
+        if not self.is_test:
+            target = self.df["cancer"][idx]
+            target = torch.tensor(target, dtype=torch.float)
+            cat_aux_targets = torch.as_tensor(
+                self.df.iloc[idx][self.category_aux_targets]
+            )
+            return img, target, cat_aux_targets
+        patient_id = self.df["patient_id"][idx]
+        laterality = self.df["laterality"][idx]
+        return img, patient_id, laterality

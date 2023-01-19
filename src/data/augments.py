@@ -46,7 +46,7 @@ class SimpleAugments:
                 # A.GaussNoise(var_limit=(10.0, 50.0), mean=0, per_channel=True, p=0.1),
                 # A.InvertImg(p=0.05),
                 # A.Defocus(radius=(3, 10), alias_blur=(0.1, 0.5), p=0.05),
-                # A.HorizontalFlip(p=0.5),
+                A.HorizontalFlip(p=0.5),
                 # A.VerticalFlip(p=0.1),
                 # A.Superpixels(
                 #     p_replace=0.1,
@@ -62,27 +62,27 @@ class SimpleAugments:
                 #     max_width=img_size // 16,
                 #     p=0.1,
                 # ),
-                # A.GridDistortion(
-                #     num_steps=3,
-                #     distort_limit=0.5,
-                #     p=0.25,
-                #     border_mode=cv2.BORDER_CONSTANT,
-                # ),
+                A.GridDistortion(
+                    num_steps=3,
+                    distort_limit=0.5,
+                    p=0.25,
+                    border_mode=cv2.BORDER_CONSTANT,
+                ),
                 A.Rotate(limit=10, p=0.5, border_mode=cv2.BORDER_CONSTANT),
                 # A.augmentations.transforms.Sharpen(
                 #     alpha=(0.05, 0.1), lightness=(0.25, 0.5), always_apply=False, p=0.1
                 # ),
                 A.RandomBrightnessContrast(
                     brightness_limit=(-0.05, 0.05),
-                    contrast_limit=(-0.15, 0.15),
-                    p=0.25,
+                    contrast_limit=(-0.2, 0.2),
+                    p=0.5,
                 ),
-                # A.RandomCrop(
-                #     height=int(img_size * 0.8),
-                #     width=int(img_size * 0.8),
-                #     always_apply=False,
-                #     p=0.2,
-                # ),
+                A.RandomCrop(
+                    height=int(img_size * 0.85),
+                    width=int(img_size * 0.85),
+                    always_apply=False,
+                    p=0.5,
+                ),
                 # Normalize(
                 #     mean=[0.485, 0.456, 0.406],
                 #     std=[0.229, 0.224, 0.225],

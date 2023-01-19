@@ -7,6 +7,7 @@ from fastai.losses import CrossEntropyLossFlat
 from src.metrics.competition_metrics import c_metrics, pfbeta_torch_thresh, pfbeta_torch
 from copy import deepcopy
 from transformers import get_cosine_schedule_with_warmup
+from pytorch_lightning.utilities.seed import seed_everything
 
 
 class RsnaTimmModel(pl.LightningModule):
@@ -14,19 +15,22 @@ class RsnaTimmModel(pl.LightningModule):
         super(RsnaTimmModel, self).__init__()
         self.save_hyperparameters()
         self.conf = conf
+        seed_everything(conf["random_seed"], True)
         # Model Architecture
         self.model = timm.create_model(
             conf["model_name"],
             pretrained=conf["pretrained"],
             num_classes=0,
-            drop_rate=0.3,
-            drop_path_rate=0.2,
+            # drop_rate=0.3,
+            # drop_path_rate=0.2,
+            drop_rate=conf["dropout_config"]["drop_rate"],
+            drop_path_rate=conf["dropout_config"]["drop_path_rate"],
         )
         self.nn_aux = torch.nn.ModuleList(
             [torch.nn.LazyLinear(n) for n in conf["aux_classes"]]
         )
         self.fc = torch.nn.LazyLinear(1)
-        self.dropout = torch.nn.Dropout(p=conf["fc_dropout"])
+        self.dropout = torch.nn.Dropout(p=conf["dropout_config"]["fc_dropout"])
         self.pooling = torch.nn.AvgPool1d(kernel_size=1)
         # Loss functions
         self.loss_fn = torch.nn.BCEWithLogitsLoss(
@@ -120,6 +124,7 @@ class RsnaTimmModel(pl.LightningModule):
     def validation_step(self, batch, batch_idx):
         imgs, targets, cat_aux_targets = batch
         out, aux_out = self(imgs)
+        # out, aux_out = self(imgs.contigous())
         out = out.view(-1)
         loss = self.loss_fn(out, targets)
         self.log(

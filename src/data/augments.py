@@ -83,25 +83,19 @@ class SimpleAugments:
                     always_apply=False,
                     p=0.5,
                 ),
-                # Normalize(
-                #     mean=[0.485, 0.456, 0.406],
-                #     std=[0.229, 0.224, 0.225],
-                #     max_pixel_value=255.0,
-                #     p=1.0,
-                # ),
                 Resize(img_size, img_size, p=1.0),
+                ######### New version ##########
+                # A.Normalize(mean=0, std=1),
+                # ToTensorV2(),
             ],
         )
 
         self.valid_augments = Compose(
             [
                 Resize(img_size, img_size, p=1.0),
-                # Normalize(
-                #     mean=[0.485, 0.456, 0.406],
-                #     std=[0.229, 0.224, 0.225],
-                #     max_pixel_value=255.0,
-                #     p=1.0,
-                # ),
+                ######### New version ##########
+                # A.Normalize(mean=0, std=1),
+                # ToTensorV2(),
             ],
         )
 

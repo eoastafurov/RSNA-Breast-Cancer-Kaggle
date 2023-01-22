@@ -23,29 +23,46 @@ from src.data.datamodule import RsnaDataModule
 
 from pytorch_lightning.utilities.seed import seed_everything
 
-seed_everything(44, True)
+RANDOM_STATE = 44
+seed_everything(RANDOM_STATE, True)
 
 
-RUN_NAME = ""
-DESC = ""
+RUN_NAME = "tf_efficientnetv2_m_4_5_fold_1024"
+DESC = "?"
 # MODEL_NAME = "tf_efficientnetv2_l"
-MODEL_NAME = "tf_efficientnetv2_s"
+# MODEL_NAME = "efficientnet_b0"
+# MODEL_NAME = "tf_efficientnetv2_s"
+MODEL_NAME = "tf_efficientnetv2_m"
+# MODEL_NAME = "efficientnet_b4"
 # MODEL_NAME = "seresnext50_32x4d"
 
 
 conf = {
-    "dataset_root": "/home/jovyan/Datasets/rsna",
+    "random_seed": RANDOM_STATE,
+    "dataset_root": "/data/rsna",
     "augments_name": "SimpleAugments",
     "augments_kwargs": {"img_size": 1024},
-    "val_ratio": 0.2,
+    "kfold_num_splits": 5,
+    "kfold_selected_split": 4,
+    "positive_weight": 50,
     "img_size": 1024,
-    "img_folder": "/home/jovyan/Datasets/rsna/train_images_1024",
-    "batch_size": 8,
+    "lr": 3e-4,
+    "weight_decay": 0.0,
+    "warmup_ratio": 0.1,
+    "dropout_config": {
+        "drop_rate": 0.3,
+        "drop_path_rate": 0.2,
+        "fc_dropout": 0.0000000001,
+    },
+    "aux_loss_weight": 0.00000001,  # TODO: Try to disable it after main loop
+    "img_folder": "/data/rsna/train_images_1024_dali",
+    "img_folder_inference": "?",
+    "batch_size": 24,
+    "grad_accum_steps": 4,
+    "epochs": 12,
     "num_workers": 16,
     "model_name": MODEL_NAME,
     "pretrained": True,
-    "fc_dropout": 0.65,
-    "lr": 5e-5,
     "category_aux_targets": [
         "site_id",
         "laterality",
@@ -60,7 +77,6 @@ conf = {
         "age",
     ],
     "aux_classes": [2, 2, 6, 2, 2, 2, 4, 5, 2, 10, 10],
-    "aux_loss_weight": 1.0,  # ?
 }
 
 
@@ -68,9 +84,26 @@ if __name__ == "__main__":
     dm = RsnaDataModule(conf)
     dm.prepare_data()
     dm.setup()
-    # print(dir(dm))
+    conf["__total_training_steps__"] = int(
+        len(dm.train_dataloader()) * conf["epochs"] / conf["grad_accum_steps"]
+    )
+    print(conf["__total_training_steps__"])
+    # print(
+    #     "Total train samples: {}\nTotal train batches: {}\nTotal valid samples: {}\n Total valid batches: {}".format(
+    #         len(dm.train_dataloader()) * conf["batch_size"],
+    #         len(dm.train_dataloader()),
+    #         len(dm.val_dataloader()) * conf["batch_size"],
+    #         len(dm.val_dataloader()),
+    #     )
+    # )
     model = RsnaTimmModel(conf)
-    # print(model.load_state_dict(torch.load('/home/toomuch/rsna/runs/[READY 0.294] EffNet2_s_1024_AUX/tf_efficientnetv2_s_1024_debug-epoch=09-val_loss=2.238-val_cf1=0.062_cf1thr=0.3.ckpt')['state_dict']))
+    # print(
+    #     model.load_state_dict(
+    #         torch.load(
+    #             "/home/jovyan/rsna/runs/tf_efficientnetv2_s_1024/tf_efficientnetv2_s_1024-epoch=06-val_loss=1.456-val_cf1=0.057.ckpt"
+    #         )["state_dict"]
+    #     )
+    # )
 
     logger = TensorBoardLogger("lightning_logs", name=RUN_NAME)
     checkpoint_callback = ModelCheckpoint(
@@ -86,16 +119,7 @@ if __name__ == "__main__":
         verbose=True,
         every_n_epochs=1,
     )
-    early_stopping_callback = EarlyStopping(
-        monitor="val_loss",
-        mode="min",
-        patience=20,
-        verbose=True,
-        strict=True,
-    )
     lr_monitor = LearningRateMonitor(logging_interval="step")
-    # swa_callback = StochasticWeightAveraging(swa_lrs=1e-2)
-    accumulator = GradientAccumulationScheduler(scheduling={0: 16})
 
     progress_bar = RichProgressBar(
         theme=RichProgressBarTheme(
@@ -117,23 +141,23 @@ if __name__ == "__main__":
         devices=1,
         # strategy=DDPStrategy(find_unused_parameters=False),
         precision=16,
-        max_epochs=50,
+        max_epochs=conf["epochs"],
         callbacks=[
             checkpoint_callback,
-            early_stopping_callback,
             progress_bar,
             lr_monitor,
-            # swa_callback,
         ],
         check_val_every_n_epoch=1,
         logger=logger,
         log_every_n_steps=1,
         gradient_clip_val=10.0,
-        num_sanity_val_steps=10,
+        val_check_interval=0.33,
         #
+        accumulate_grad_batches={0: conf["grad_accum_steps"]},
         # profiler="advanced",
         # track_grad_norm=2,
         # detect_anomaly=True,
+        # overfit_batches=5
     )
 
     trainer.fit(model, datamodule=dm)

@@ -47,7 +47,7 @@ class SimpleAugments:
                 # A.InvertImg(p=0.05),
                 # A.Defocus(radius=(3, 10), alias_blur=(0.1, 0.5), p=0.05),
                 A.HorizontalFlip(p=0.5),
-                # A.VerticalFlip(p=0.1),
+                A.VerticalFlip(p=0.1),
                 # A.Superpixels(
                 #     p_replace=0.1,
                 #     n_segments=100,
@@ -57,32 +57,32 @@ class SimpleAugments:
                 #     p=0.05,
                 # ),
                 # A.CoarseDropout(
-                #     max_holes=48,
+                #     max_holes=25,
                 #     max_height=img_size // 16,
                 #     max_width=img_size // 16,
-                #     p=0.1,
+                #     p=0.2,
                 # ),
                 A.GridDistortion(
-                    num_steps=3,
-                    distort_limit=0.5,
-                    p=0.25,
+                    num_steps=2,
+                    distort_limit=0.3,
+                    p=0.2,
                     border_mode=cv2.BORDER_CONSTANT,
                 ),
-                A.Rotate(limit=10, p=0.5, border_mode=cv2.BORDER_CONSTANT),
+                A.Rotate(limit=5, p=0.5, border_mode=cv2.BORDER_CONSTANT),
                 # A.augmentations.transforms.Sharpen(
                 #     alpha=(0.05, 0.1), lightness=(0.25, 0.5), always_apply=False, p=0.1
                 # ),
-                A.RandomBrightnessContrast(
-                    brightness_limit=(-0.05, 0.05),
-                    contrast_limit=(-0.2, 0.2),
-                    p=0.5,
-                ),
-                A.RandomCrop(
-                    height=int(img_size * 0.85),
-                    width=int(img_size * 0.85),
-                    always_apply=False,
-                    p=0.5,
-                ),
+                # A.RandomBrightnessContrast(
+                #     brightness_limit=(-0.05, 0.05),
+                #     contrast_limit=(-0.2, 0.2),
+                #     p=0.5,
+                # ),
+                # A.RandomCrop(
+                #     height=int(img_size * 0.95),
+                #     width=int(img_size * 0.95),
+                #     always_apply=False,
+                #     p=0.5,
+                # ),
                 Resize(img_size, img_size, p=1.0),
                 ######### New version ##########
                 # A.Normalize(mean=0, std=1),

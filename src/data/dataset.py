@@ -5,19 +5,23 @@ import numpy as np
 import torchvision
 import os
 from PIL import Image
-from typing import List
+from typing import List, Any
+import pandas as pd
 
 
 class RsnaDataset(torch.utils.data.Dataset):
     def __init__(
         self,
-        df,
-        img_size,
-        is_test,
-        augments,
-        img_folder,
+        df: pd.DataFrame,
+        img_size: int,
+        is_test: bool,
+        augments: Any,
+        img_folder: str,
         category_aux_targets: List[str],
     ):
+        """Common Dataset for RSNA competition
+        Training and Scoring.
+        """
         df["img_name"] = (
             (df["patient_id"].astype(str) + "_" + df["image_id"].astype(str) + ".png")
             if not is_test
@@ -38,7 +42,7 @@ class RsnaDataset(torch.utils.data.Dataset):
     def __len__(self):
         return len(self.df)
 
-    def __getitem__(self, idx):
+    def __getitem__(self, idx: int):
         img_path = os.path.join(self.img_folder, self.df["img_name"][idx])
         img = cv2.imread(img_path)
 

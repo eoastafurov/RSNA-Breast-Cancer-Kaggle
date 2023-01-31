@@ -21,8 +21,6 @@ class RsnaTimmModel(pl.LightningModule):
             conf["model_name"],
             pretrained=conf["pretrained"],
             num_classes=0,
-            # drop_rate=0.3,
-            # drop_path_rate=0.2,
             drop_rate=conf["dropout_config"]["drop_rate"],
             drop_path_rate=conf["dropout_config"]["drop_path_rate"],
         )
@@ -44,15 +42,17 @@ class RsnaTimmModel(pl.LightningModule):
         self.sigmoid = torch.nn.Sigmoid()
 
     def forward(self, x):
-        output = self.model(x)
+        if self.conf["enable_grad"]:
+            output = self.model(x)
+        else:
+            with torch.no_grad():
+                output = self.model(x)
         output = self.dropout(output)
         output = self.fc(output)
 
         aux = []
         for nn in self.nn_aux:
-            # print(nn)
             tmp = nn(output)
-            # print(tmp.shape)
             aux.append(tmp)
         return output, aux
 
@@ -61,9 +61,10 @@ class RsnaTimmModel(pl.LightningModule):
         out, aux_out = self(imgs)
         out = out.view(-1)
         loss = self.loss_fn(out, targets)
+        clean_loss = loss.clone().detach().cpu()
         self.log(
             "train_loss_clean",
-            loss.clone(),
+            clean_loss,
             on_step=True,
             on_epoch=False,
             prog_bar=True,
@@ -119,6 +120,7 @@ class RsnaTimmModel(pl.LightningModule):
             "log": logs,
             "pred_probs": self.sigmoid(out).clone().detach().cpu(),
             "y_test": targets.clone().detach().cpu(),
+            "clean_loss_train": clean_loss,
         }
 
     def validation_step(self, batch, batch_idx):
@@ -127,9 +129,10 @@ class RsnaTimmModel(pl.LightningModule):
         # out, aux_out = self(imgs.contigous())
         out = out.view(-1)
         loss = self.loss_fn(out, targets)
+        clean_loss_val = loss.clone().detach().cpu()
         self.log(
             "val_loss_clean",
-            loss.clone(),
+            clean_loss_val,
             on_step=True,
             on_epoch=False,
             prog_bar=True,
@@ -183,10 +186,78 @@ class RsnaTimmModel(pl.LightningModule):
             "val_cf1_thresh": cf1_thresh,
             "pred_probs": self.sigmoid(out).clone().detach().cpu(),
             "y_test": targets.clone().detach().cpu(),
+            "clean_loss_val": clean_loss_val,
+        }
+
+    def test_step(self, batch, batch_idx):
+        imgs, targets, cat_aux_targets = batch
+        out, aux_out = self(imgs)
+        # out, aux_out = self(imgs.contigous())
+        out = out.view(-1)
+        loss = self.loss_fn(out, targets)
+        clean_loss_test = loss.clone().detach().cpu()
+        self.log(
+            "test_loss_clean",
+            clean_loss_test,
+            on_step=True,
+            on_epoch=False,
+            prog_bar=True,
+        )
+        aux_loss = torch.mean(
+            torch.stack(
+                [
+                    torch.nn.functional.cross_entropy(aux_out[i], cat_aux_targets[:, i])
+                    for i in range(cat_aux_targets.shape[-1])
+                ]
+            )
+        )
+        loss = loss + self.conf["aux_loss_weight"] * aux_loss
+
+        cf1 = pfbeta_torch(
+            preds=self.sigmoid(out).clone().detach().cpu(),
+            labels=targets.clone().detach().cpu(),
+        )
+        cf1_thresh, _ = pfbeta_torch_thresh(
+            preds=self.sigmoid(out).clone().detach().cpu(),
+            labels=targets.clone().detach().cpu(),
+        )
+
+        self.log(
+            "test_loss",
+            loss,
+            on_step=True,
+            on_epoch=True,
+            prog_bar=False,
+            sync_dist=True,
+        )
+        self.log(
+            "test_cf1",
+            cf1,
+            on_step=True,
+            on_epoch=True,
+            prog_bar=False,
+            sync_dist=True,
+        )
+        self.log(
+            "test_cf1_thresh",
+            cf1_thresh,
+            on_step=True,
+            on_epoch=True,
+            prog_bar=False,
+            sync_dist=True,
+        )
+        return {
+            "test_loss": loss,
+            "test_cf1": cf1,
+            "test_cf1_thresh": cf1_thresh,
+            "pred_probs": self.sigmoid(out).clone().detach().cpu(),
+            "y_test": targets.clone().detach().cpu(),
+            "clean_loss_test": clean_loss_test,
         }
 
     def validation_epoch_end(self, outputs):
         val_avg_loss = torch.stack([x["val_loss"] for x in outputs]).mean()
+        val_avg_loss_clean = torch.stack([x["clean_loss_val"] for x in outputs]).mean()
         val_y_test = torch.cat([x["y_test"] for x in outputs])
         val_pred_probs = torch.cat([x["pred_probs"] for x in outputs])
 
@@ -201,6 +272,7 @@ class RsnaTimmModel(pl.LightningModule):
 
         report = """        #{0}#
             = VALID LOSS: {1}
+            = VALID LOSS CLEAN: {5}
             = VALID cF1: {2}
             = VALID cF1_thresh {3}, thr value = {4}
         #{0}#""".format(
@@ -209,11 +281,15 @@ class RsnaTimmModel(pl.LightningModule):
             round(float(cf1), 3),
             round(float(cf1_thresh), 3),
             round(float(threshold), 3),
+            round(float(val_avg_loss_clean), 3),
         )
         print(report)
 
     def training_epoch_end(self, outputs):
         train_avg_loss = torch.stack([x["loss"] for x in outputs]).mean()
+        train_avg_loss_clean = torch.stack(
+            [x["clean_loss_train"] for x in outputs]
+        ).mean()
         train_y_test = torch.cat([x["y_test"] for x in outputs])
         train_pred_probs = torch.cat([x["pred_probs"] for x in outputs])
 
@@ -227,14 +303,16 @@ class RsnaTimmModel(pl.LightningModule):
         )
         report = """        #{0}#
             = TRAIN LOSS: {1}
+            = TRAIN LOSS CLEAN: {5}
             = TRAIN cF1: {2}
             = TRAIN cF1_thresh {3}, thr value = {4}
         #{0}#""".format(
             "".join(["="] * 75),
-            round(float(train_avg_loss), 3),
+            round(float(train_avg_loss) * self.conf["grad_accum_steps"], 3),
             round(float(cf1), 3),
             round(float(cf1_thresh), 3),
             round(float(threshold), 3),
+            round(float(train_avg_loss_clean), 3),
             # round(float(cm["c_precision"]), 3),
             # round(float(cm["c_recall"]), 3),
         )
@@ -245,32 +323,6 @@ class RsnaTimmModel(pl.LightningModule):
         out, _ = self(imgs)
         probs = self.sigmoid(out)
         return probs, patient_ids, lateralitys
-
-    # def configure_optimizers(self):
-    #     optimizer = torch.optim.AdamW(
-    #         self.parameters(),
-    #         lr=self.conf["lr"],
-    #         betas=(0.9, 0.999),
-    #     )
-    #     lr_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
-    #         optimizer,
-    #         mode="min",
-    #         factor=0.3,
-    #         patience=2,
-    #         threshold=1e-2,
-    #         threshold_mode="rel",
-    #         cooldown=0,
-    #         min_lr=0,
-    #         eps=1e-08,
-    #         verbose=True,
-    #     )
-    #     lr_dict = {
-    #         "scheduler": lr_scheduler,
-    #         "interval": "epoch",
-    #         "frequency": 1,
-    #         "monitor": "val_cf1",
-    #     }
-    #     return [optimizer], [lr_dict]
 
     def configure_optimizers(self):
         param_optimizer = list(self.named_parameters())
